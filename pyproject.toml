@@ -1,7 +1,7 @@
 [project]
 name = "datasette-ip-rate-limit"
 version = "0.1"
-description = "Rate limit Datasette requests by IP"
+description = "Rate limit Datasette requests by client IP address"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
 license = "Apache-2.0"
@@ -15,6 +15,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx",
     "pytest",
     "pytest-asyncio"
 ]
@@ -36,4 +37,3 @@ ip_rate_limit = "datasette_ip_rate_limit"
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
-
