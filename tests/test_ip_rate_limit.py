@@ -23,11 +23,11 @@ def datasette_with_config(config):
     )
 
 
-def client_for(ds, clock=None):
+def client_for(ds, clock=None, client_addr=("127.0.0.1", 123)):
     app = ds.app()
     if clock is not None:
         ds._datasette_ip_rate_limit_state.clock = clock
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=client_addr))
 
 
 @pytest.mark.asyncio
@@ -50,7 +50,7 @@ async def test_no_config_passes_through():
 
 
 @pytest.mark.asyncio
-async def test_blocks_ip_after_limit_using_fly_client_ip_header():
+async def test_blocks_ip_after_limit_using_asgi_client_by_default():
     ds = datasette_with_config(
         {
             "rules": [
@@ -66,17 +66,14 @@ async def test_blocks_ip_after_limit_using_fly_client_ip_header():
     )
     clock = FakeClock()
 
-    async with client_for(ds, clock) as client:
-        headers = {"Fly-Client-IP": "203.0.113.10"}
-        first = await client.get("http://localhost/data/table?a=1&b=2", headers=headers)
-        second = await client.get(
-            "http://localhost/data/table?a=1&b=2", headers=headers
-        )
-        third = await client.get("http://localhost/data/table?a=1&b=2", headers=headers)
-        other_ip = await client.get(
-            "http://localhost/data/table?a=1&b=2",
-            headers={"Fly-Client-IP": "203.0.113.11"},
-        )
+    async with (
+        client_for(ds, clock, ("203.0.113.10", 123)) as client,
+        client_for(ds, clock, ("203.0.113.11", 123)) as other_client,
+    ):
+        first = await client.get("http://localhost/data/table?a=1&b=2")
+        second = await client.get("http://localhost/data/table?a=1&b=2")
+        third = await client.get("http://localhost/data/table?a=1&b=2")
+        other_ip = await other_client.get("http://localhost/data/table?a=1&b=2")
 
     assert first.status_code == 404
     assert second.status_code == 404
@@ -84,6 +81,41 @@ async def test_blocks_ip_after_limit_using_fly_client_ip_header():
     assert third.headers["retry-after"] == "300"
     assert "Rate limit exceeded" in third.text
     assert other_ip.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_configured_header_overrides_asgi_client_ip():
+    ds = datasette_with_config(
+        {
+            "header": "X-Forwarded-For",
+            "rules": [
+                {
+                    "paths": ["/data/*"],
+                    "window_seconds": 60,
+                    "max_requests": 1,
+                    "block_seconds": 300,
+                }
+            ],
+        }
+    )
+
+    async with client_for(ds, FakeClock(), ("203.0.113.10", 123)) as client:
+        first = await client.get(
+            "http://localhost/data/table",
+            headers={"X-Forwarded-For": "198.51.100.1"},
+        )
+        second = await client.get(
+            "http://localhost/data/table",
+            headers={"X-Forwarded-For": "198.51.100.2"},
+        )
+        blocked = await client.get(
+            "http://localhost/data/table",
+            headers={"X-Forwarded-For": "198.51.100.1"},
+        )
+
+    assert first.status_code == 404
+    assert second.status_code == 404
+    assert blocked.status_code == 429
 
 
 @pytest.mark.asyncio
@@ -103,11 +135,10 @@ async def test_block_expires_after_configured_period():
     clock = FakeClock()
 
     async with client_for(ds, clock) as client:
-        headers = {"Fly-Client-IP": "203.0.113.10"}
-        first = await client.get("http://localhost/data/table", headers=headers)
-        blocked = await client.get("http://localhost/data/table", headers=headers)
+        first = await client.get("http://localhost/data/table")
+        blocked = await client.get("http://localhost/data/table")
         clock.advance(11)
-        allowed = await client.get("http://localhost/data/table", headers=headers)
+        allowed = await client.get("http://localhost/data/table")
 
     assert first.status_code == 404
     assert blocked.status_code == 429
@@ -131,14 +162,9 @@ async def test_query_params_min_only_counts_matching_requests():
     )
 
     async with client_for(ds, FakeClock()) as client:
-        headers = {"Fly-Client-IP": "203.0.113.10"}
-        one_param = await client.get("http://localhost/data/table?a=1", headers=headers)
-        first_two_params = await client.get(
-            "http://localhost/data/table?a=1&b=2", headers=headers
-        )
-        second_two_params = await client.get(
-            "http://localhost/data/table?a=1&b=2", headers=headers
-        )
+        one_param = await client.get("http://localhost/data/table?a=1")
+        first_two_params = await client.get("http://localhost/data/table?a=1&b=2")
+        second_two_params = await client.get("http://localhost/data/table?a=1&b=2")
 
     assert one_param.status_code == 404
     assert first_two_params.status_code == 404
@@ -162,15 +188,10 @@ async def test_exempt_paths_are_not_rate_limited():
     )
 
     async with client_for(ds, FakeClock()) as client:
-        headers = {"Fly-Client-IP": "203.0.113.10"}
-        static_one = await client.get(
-            "http://localhost/static/site.css", headers=headers
-        )
-        static_two = await client.get(
-            "http://localhost/static/site.css", headers=headers
-        )
-        dynamic_one = await client.get("http://localhost/data/table", headers=headers)
-        dynamic_two = await client.get("http://localhost/data/table", headers=headers)
+        static_one = await client.get("http://localhost/static/site.css")
+        static_two = await client.get("http://localhost/static/site.css")
+        dynamic_one = await client.get("http://localhost/data/table")
+        dynamic_two = await client.get("http://localhost/data/table")
 
     assert static_one.status_code == 404
     assert static_two.status_code == 404

@@ -24,7 +24,6 @@ Configure the plugin in `datasette.yaml`:
 ```yaml
 plugins:
   datasette-ip-rate-limit:
-    header: Fly-Client-IP
     max_keys: 10000
     exempt_paths:
     - "/static/*"
@@ -40,13 +39,20 @@ plugins:
       block_seconds: 600
 ```
 
-This allows each IP address to make 120 matching requests per 60 seconds. If an IP exceeds that rate, it receives `429 Too Many Requests` responses for 600 seconds with a `Retry-After` header.
+This allows each IP address to make 120 matching requests per 60 seconds. If
+an IP exceeds that rate, it receives `429 Too Many Requests` responses for 600
+seconds with a `Retry-After` header.
 
 The example only applies to matching table pages with at least two query string parameters, so ordinary page views are left alone.
 
+By default, the client IP address is read from the ASGI connection. If
+Datasette is running behind a trusted proxy, set `header` to the request header
+that proxy uses for the client IP address.
+
 ## Options
 
-- `header`: Request header used for the client IP.
+- `header`: Optional request header used for the client IP instead of the ASGI
+  connection address.
 - `max_keys`: Maximum number of `(rule, IP)` entries kept in memory. Defaults to `10000`.
 - `exempt_paths`: Path patterns that should never be rate limited.
 - `rules`: List of rate limit rules. The first matching rule is used.

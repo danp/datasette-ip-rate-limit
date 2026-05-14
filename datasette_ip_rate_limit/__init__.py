@@ -7,7 +7,6 @@ from urllib.parse import parse_qsl
 
 from datasette import hookimpl
 
-DEFAULT_HEADER = "Fly-Client-IP"
 DEFAULT_MAX_KEYS = 10000
 DEFAULT_MAX_REQUESTS = 60
 DEFAULT_WINDOW_SECONDS = 60
@@ -123,7 +122,7 @@ class IpRateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        client_ip = _client_ip(scope, config.get("header") or DEFAULT_HEADER)
+        client_ip = _client_ip(scope, config.get("header"))
         if not client_ip:
             await self.app(scope, receive, send)
             return
@@ -188,7 +187,13 @@ def _rule_matches(rule, path, method, query_count):
     return True
 
 
-def _client_ip(scope, header_name):
+def _client_ip(scope, header_name=None):
+    if not header_name:
+        client = scope.get("client")
+        if not client:
+            return None
+        return client[0] or None
+
     headers = {
         key.decode("latin-1").lower(): value.decode("latin-1")
         for key, value in scope.get("headers") or []
@@ -196,7 +201,7 @@ def _client_ip(scope, header_name):
     client_ip = headers.get(header_name.lower())
     if not client_ip:
         return None
-    # X-Forwarded-For style values are comma-separated; Fly-Client-IP is not.
+    # X-Forwarded-For style values are comma-separated.
     return client_ip.split(",", 1)[0].strip()
 
 
