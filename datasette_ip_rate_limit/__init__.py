@@ -7,7 +7,6 @@ from urllib.parse import parse_qsl
 
 from datasette import hookimpl
 
-
 DEFAULT_HEADER = "Fly-Client-IP"
 DEFAULT_MAX_KEYS = 10000
 DEFAULT_MAX_REQUESTS = 60
@@ -130,9 +129,7 @@ class IpRateLimitMiddleware:
             return
 
         index, rule = matching_rule
-        max_requests = _positive_int(
-            rule.get("max_requests"), DEFAULT_MAX_REQUESTS
-        )
+        max_requests = _positive_int(rule.get("max_requests"), DEFAULT_MAX_REQUESTS)
         window_seconds = _positive_float(
             rule.get("window_seconds"), DEFAULT_WINDOW_SECONDS
         )

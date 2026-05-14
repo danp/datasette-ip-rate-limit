@@ -44,8 +44,7 @@ async def test_no_config_passes_through():
     ds = Datasette(memory=True)
     async with client_for(ds) as client:
         responses = [
-            await client.get("http://localhost/data/table?a=1&b=2")
-            for _ in range(3)
+            await client.get("http://localhost/data/table?a=1&b=2") for _ in range(3)
         ]
     assert [response.status_code for response in responses] == [404, 404, 404]
 
@@ -69,15 +68,11 @@ async def test_blocks_ip_after_limit_using_fly_client_ip_header():
 
     async with client_for(ds, clock) as client:
         headers = {"Fly-Client-IP": "203.0.113.10"}
-        first = await client.get(
-            "http://localhost/data/table?a=1&b=2", headers=headers
-        )
+        first = await client.get("http://localhost/data/table?a=1&b=2", headers=headers)
         second = await client.get(
             "http://localhost/data/table?a=1&b=2", headers=headers
         )
-        third = await client.get(
-            "http://localhost/data/table?a=1&b=2", headers=headers
-        )
+        third = await client.get("http://localhost/data/table?a=1&b=2", headers=headers)
         other_ip = await client.get(
             "http://localhost/data/table?a=1&b=2",
             headers={"Fly-Client-IP": "203.0.113.11"},
@@ -137,9 +132,7 @@ async def test_query_params_min_only_counts_matching_requests():
 
     async with client_for(ds, FakeClock()) as client:
         headers = {"Fly-Client-IP": "203.0.113.10"}
-        one_param = await client.get(
-            "http://localhost/data/table?a=1", headers=headers
-        )
+        one_param = await client.get("http://localhost/data/table?a=1", headers=headers)
         first_two_params = await client.get(
             "http://localhost/data/table?a=1&b=2", headers=headers
         )
