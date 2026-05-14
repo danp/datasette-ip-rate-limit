@@ -24,6 +24,21 @@ Configure the plugin in `datasette.yaml`:
 ```yaml
 plugins:
   datasette-ip-rate-limit:
+    debug: true
+    rules:
+    - paths:
+      - "/*"
+      block_seconds: 20
+```
+
+This applies rate limiting to every non-debug path and enables
+`/-/ip-rate-limit-debug` so you can inspect the current in-memory state.
+
+For a more targeted configuration:
+
+```yaml
+plugins:
+  datasette-ip-rate-limit:
     max_keys: 10000
     exempt_paths:
     - "/static/*"
@@ -56,6 +71,9 @@ that proxy uses for the client IP address.
 - `max_keys`: Maximum number of `(rule, IP)` entries kept in memory. Defaults to `10000`.
 - `exempt_paths`: Path patterns that should never be rate limited.
 - `rules`: List of rate limit rules. The first matching rule is used.
+- `debug`: Set to `true` to enable `/-/ip-rate-limit-debug`, a debug page
+  showing the current in-memory rate limit state as pretty-printed JSON. This
+  includes client IP addresses, so it should only be enabled while debugging.
 
 Each rule supports:
 

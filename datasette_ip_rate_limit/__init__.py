@@ -1,12 +1,15 @@
 from collections import OrderedDict
 from dataclasses import dataclass
+import json
 from math import ceil
 import re
 from time import monotonic
 from urllib.parse import parse_qsl
 
 from datasette import hookimpl
+from datasette.utils.asgi import Response
 
+DEBUG_PATH = "/-/ip-rate-limit-debug"
 DEFAULT_MAX_KEYS = 10000
 DEFAULT_MAX_REQUESTS = 60
 DEFAULT_WINDOW_SECONDS = 60
@@ -98,12 +101,16 @@ class IpRateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
+        path = scope.get("path") or ""
+        if config.get("debug") is True and path == DEBUG_PATH:
+            await self.app(scope, receive, send)
+            return
+
         rules = config.get("rules") or []
         if not rules:
             await self.app(scope, receive, send)
             return
 
-        path = scope.get("path") or ""
         query_string = (scope.get("query_string") or b"").decode("latin-1")
 
         if _matches_any(path, _as_list(config.get("exempt_paths"))):
@@ -205,6 +212,42 @@ def _client_ip(scope, header_name=None):
     return client_ip.split(",", 1)[0].strip()
 
 
+def _debug_state(datasette, config):
+    state = _rate_limit_state(datasette)
+    now = state.clock()
+    buckets = []
+    for (rule, client_ip), bucket in state.buckets.items():
+        buckets.append(
+            {
+                "rule": rule,
+                "client_ip": client_ip,
+                "tokens": bucket.tokens,
+                "updated_at": bucket.updated_at,
+                "seconds_since_updated": max(0.0, now - bucket.updated_at),
+                "blocked_until": bucket.blocked_until,
+                "blocked_for_seconds": max(0.0, bucket.blocked_until - now),
+            }
+        )
+    return {
+        "config": config,
+        "now": now,
+        "bucket_count": len(buckets),
+        "buckets": buckets,
+    }
+
+
+async def ip_rate_limit_debug(datasette):
+    config = datasette.plugin_config("datasette-ip-rate-limit") or {}
+    if config.get("debug") is not True:
+        return Response.text("Not found", status=404)
+
+    return Response(
+        json.dumps(_debug_state(datasette, config), indent=2, sort_keys=True) + "\n",
+        headers={"cache-control": "no-store"},
+        content_type="application/json; charset=utf-8",
+    )
+
+
 def _positive_int(value, default, minimum=1):
     try:
         value = int(value)
@@ -249,8 +292,7 @@ async def _send_rate_limited(send, retry_after):
 
 @hookimpl
 def asgi_wrapper(datasette):
-    if not hasattr(datasette, "_datasette_ip_rate_limit_state"):
-        datasette._datasette_ip_rate_limit_state = RateLimitState()
+    _rate_limit_state(datasette)
 
     def wrap(app):
         return IpRateLimitMiddleware(
@@ -258,3 +300,14 @@ def asgi_wrapper(datasette):
         )
 
     return wrap
+
+
+@hookimpl
+def register_routes(datasette):
+    return [(r"{}$".format(DEBUG_PATH), ip_rate_limit_debug)]
+
+
+def _rate_limit_state(datasette):
+    if not hasattr(datasette, "_datasette_ip_rate_limit_state"):
+        datasette._datasette_ip_rate_limit_state = RateLimitState()
+    return datasette._datasette_ip_rate_limit_state

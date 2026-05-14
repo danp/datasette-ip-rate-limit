@@ -119,6 +119,98 @@ async def test_configured_header_overrides_asgi_client_ip():
 
 
 @pytest.mark.asyncio
+async def test_debug_route_is_not_available_by_default():
+    ds = datasette_with_config(
+        {
+            "rules": [
+                {
+                    "paths": ["/data/*"],
+                    "window_seconds": 60,
+                    "max_requests": 1,
+                    "block_seconds": 300,
+                }
+            ],
+        }
+    )
+
+    async with client_for(ds) as client:
+        response = await client.get("http://localhost/-/ip-rate-limit-debug")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_debug_route_returns_pretty_printed_json_state():
+    ds = datasette_with_config(
+        {
+            "debug": True,
+            "rules": [
+                {
+                    "paths": ["/data/*"],
+                    "window_seconds": 60,
+                    "max_requests": 1,
+                    "block_seconds": 300,
+                }
+            ],
+        }
+    )
+    clock = FakeClock()
+
+    async with client_for(ds, clock, ("203.0.113.10", 123)) as client:
+        first = await client.get("http://localhost/data/table")
+        clock.advance(5)
+        response = await client.get("http://localhost/-/ip-rate-limit-debug")
+
+    assert first.status_code == 404
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+    assert response.text.startswith("{\n  ")
+    assert response.text.endswith("\n")
+
+    data = response.json()
+    assert data["config"]["debug"] is True
+    assert data["bucket_count"] == 1
+    assert data["now"] == 5.0
+    assert data["buckets"] == [
+        {
+            "rule": "0",
+            "client_ip": "203.0.113.10",
+            "tokens": 0.0,
+            "updated_at": 0.0,
+            "seconds_since_updated": 5.0,
+            "blocked_until": 0.0,
+            "blocked_for_seconds": 0.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_debug_route_is_not_rate_limited_or_tracked():
+    ds = datasette_with_config(
+        {
+            "debug": True,
+            "rules": [
+                {
+                    "paths": ["/*"],
+                    "window_seconds": 60,
+                    "max_requests": 1,
+                    "block_seconds": 300,
+                }
+            ],
+        }
+    )
+
+    async with client_for(ds, FakeClock()) as client:
+        first = await client.get("http://localhost/-/ip-rate-limit-debug")
+        second = await client.get("http://localhost/-/ip-rate-limit-debug")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["bucket_count"] == 0
+    assert second.json()["bucket_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_block_expires_after_configured_period():
     ds = datasette_with_config(
         {
