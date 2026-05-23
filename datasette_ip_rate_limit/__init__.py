@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from dataclasses import dataclass
+import ipaddress
 import json
 from math import ceil
 import re
@@ -142,11 +143,12 @@ class IpRateLimitMiddleware:
         block_seconds = _non_negative_float(
             rule.get("block_seconds"), DEFAULT_BLOCK_SECONDS
         )
+        client_key = _client_key(client_ip, rule.get("ip_prefix_length"))
         max_keys = _positive_int(config.get("max_keys"), DEFAULT_MAX_KEYS)
         rule_name = rule.get("name") or str(index)
 
         result = self.state.check(
-            (rule_name, client_ip),
+            (rule_name, client_key),
             max_requests,
             window_seconds,
             block_seconds,
@@ -210,6 +212,19 @@ def _client_ip(scope, header_name=None):
         return None
     # X-Forwarded-For style values are comma-separated.
     return client_ip.split(",", 1)[0].strip()
+
+
+def _client_key(client_ip, ip_prefix_length=None):
+    if ip_prefix_length is None:
+        return client_ip
+
+    try:
+        network = ipaddress.ip_network(
+            f"{client_ip}/{int(ip_prefix_length)}", strict=False
+        )
+    except (TypeError, ValueError):
+        return client_ip
+    return network.with_prefixlen
 
 
 def _debug_state(datasette, config):

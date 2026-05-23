@@ -119,6 +119,61 @@ async def test_configured_header_overrides_asgi_client_ip():
 
 
 @pytest.mark.asyncio
+async def test_ip_prefix_length_groups_multiple_ips_into_one_bucket():
+    ds = datasette_with_config(
+        {
+            "rules": [
+                {
+                    "paths": ["/data/*"],
+                    "window_seconds": 60,
+                    "max_requests": 2,
+                    "block_seconds": 300,
+                    "ip_prefix_length": 24,
+                }
+            ]
+        }
+    )
+
+    async with (
+        client_for(ds, FakeClock(), ("203.0.113.10", 123)) as client,
+        client_for(ds, FakeClock(), ("203.0.113.11", 123)) as other_client,
+    ):
+        first = await client.get("http://localhost/data/table")
+        second = await other_client.get("http://localhost/data/table")
+        third = await client.get("http://localhost/data/table")
+
+    assert first.status_code == 404
+    assert second.status_code == 404
+    assert third.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_debug_route_shows_grouped_subnet_key():
+    ds = datasette_with_config(
+        {
+            "debug": True,
+            "rules": [
+                {
+                    "paths": ["/data/*"],
+                    "window_seconds": 60,
+                    "max_requests": 1,
+                    "block_seconds": 300,
+                    "ip_prefix_length": 24,
+                }
+            ],
+        }
+    )
+
+    async with client_for(ds, FakeClock(), ("203.0.113.10", 123)) as client:
+        first = await client.get("http://localhost/data/table")
+        response = await client.get("http://localhost/-/ip-rate-limit-debug")
+
+    assert first.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["buckets"][0]["client_ip"] == "203.0.113.0/24"
+
+
+@pytest.mark.asyncio
 async def test_debug_route_is_not_available_by_default():
     ds = datasette_with_config(
         {

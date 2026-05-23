@@ -49,14 +49,16 @@ plugins:
       - "/global-power-plants/*"
       - "/legislators/*"
       query_params_min: 2
+      ip_prefix_length: 24
       window_seconds: 60
       max_requests: 120
       block_seconds: 600
 ```
 
-This allows each IP address to make 120 matching requests per 60 seconds. If
-an IP exceeds that rate, it receives `429 Too Many Requests` responses for 600
-seconds with a `Retry-After` header.
+This groups clients into `/24` subnets, allowing each subnet to make 120
+matching requests per 60 seconds. If that rate is exceeded, requests from that
+subnet receive `429 Too Many Requests` responses for 600 seconds with a
+`Retry-After` header.
 
 The example only applies to matching table pages with at least two query string parameters, so ordinary page views are left alone.
 
@@ -81,6 +83,7 @@ Each rule supports:
 - `paths`: Path patterns to match. `*` matches any characters.
 - `methods`: Optional list of HTTP methods to match.
 - `query_params_min`: Optional minimum number of query string parameters required before the rule applies.
+- `ip_prefix_length`: Optional CIDR prefix length used to group client IPs into a shared bucket, such as `24` for IPv4 `/24` networks.
 - `window_seconds`: Token refill window. Defaults to `60`.
 - `max_requests`: Number of requests allowed per window. Defaults to `60`.
 - `block_seconds`: How long to block an IP after it exceeds the rate. Defaults to `300`.
